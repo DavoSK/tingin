@@ -1,0 +1,30 @@
+{
+  "name": "tingin",
+  "version": "1.0.0",
+  "main": "dist/library.js",
+  "module": "lib/index.js",
+  "author": "David Svitana david.svitana@gmail.com",
+  "license": "CC0-1.0",
+  "config": {
+    "library": "Library",
+    "host": "localhost",
+    "port": "8080"
+  },
+  "scripts": {
+    "start": "webpack-serve webpack.config.js",
+    "build": "tsc --build"
+  },
+  "dependencies": {
+    "gl-matrix": "^3.3.0"
+  },
+  "devDependencies": {
+    "@types/node": "^10.12.21",
+    "awesome-typescript-loader": "^5.2.1",
+    "source-map-loader": "^0.2.4",
+    "typescript": "^3.3.1",
+    "webpack": "^4.29.3",
+    "webpack-cli": "^3.2.3",
+    "webpack-serve": "^2.0.3",
+    "worker-loader": "^2.0.0"
+  }
+}

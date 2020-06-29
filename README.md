@@ -1,2 +1,1 @@
-# tingin
-Tiny TypeScript Engine
+# Tiny TypeScript WebGL Engine
