@@ -1,28 +1,66 @@
-import { mat4, vec2, vec3, quat } from 'gl-matrix';
+import { mat4, vec2, vec3, quat, vec4, ReadonlyMat4 } from 'gl-matrix';
 
-// Vertex shader program
+//NOTE: vertex shader program
 const vsSource = `
   attribute vec3 aVertexPosition;
   attribute vec2 aTextureCoord;
 
-  uniform mat4 uMVPMatrix;
-  varying highp vec2 vTextureCoord;
+  uniform mat4 uWorldView;
+  uniform mat4 uProjection;
+  uniform vec4 uColor;
+
+  varying vec2 vTextureCoord;
+  varying vec4 vColor;
+  varying float vFogDepth;
 
   void main(void) {
-    gl_Position = uMVPMatrix * vec4(aVertexPosition, 1);
+    gl_Position = uProjection * uWorldView * vec4(aVertexPosition, 1);
     vTextureCoord = aTextureCoord;
+    vColor = uColor;
+    vFogDepth = -(uWorldView * vec4(aVertexPosition, 1)).z;
   }
 `;
 
-// Fragment shader program
+//NOTE: fragment shader program
 const fsSource = `
-  varying highp vec2 vTextureCoord;
+  precision mediump float;
+  varying vec2 vTextureCoord;
+  varying vec4 vColor;
+  varying float vFogDepth;
+
+  uniform int uUseTexture;
   uniform sampler2D uSampler;
+  uniform vec4 uFogColor;
+  uniform float uFogNear;
+  uniform float uFogFar;
 
   void main(void) {
-    gl_FragColor = texture2D(uSampler, vTextureCoord) * vec4(1.0, 1.0, 1.0, 1.0);
+    vec4 color = uUseTexture == 1 ? texture2D(uSampler, vTextureCoord) : vColor;
+    
+    if(color.a < 0.1)
+      discard;
+
+    float fogAmount = smoothstep(uFogNear, uFogFar, vFogDepth);
+    gl_FragColor = mix(color, uFogColor, fogAmount);
   }
 `;
+
+// class TinEffect { 
+  
+//   private engine: TinGin;
+  
+//   constructor(engine: TinGin) {
+//     this.engine = engine;
+//   }
+
+//   //public loadShader(vertexShader: string, pixelShader: string, attribs: any, uniforms: any): 
+
+
+//   public use(): void {
+//     const { gl } = this.engine;
+//     //gl.useProgram();
+//   }
+// }
 
 class TinCamera {
   private engine: TinGin;
@@ -59,9 +97,19 @@ class TinCamera {
   }
 
   public render(deltaTime: number) {
+    const { gl } = this.engine;
+
     this.processControlls(deltaTime);
 	  this.viewMat = mat4.invert(mat4.create(), this.cameraMat)
     this.viewProjMat = mat4.multiply(mat4.create(), this.projMat, this.viewMat);
+  
+    //NOTE: set all camera uniforms
+    const programInfo = this.engine.getProgram();
+    gl.useProgram(programInfo.program);
+    gl.uniformMatrix4fv(programInfo.uniformLocations.uProjection, false, this.getProj());
+    gl.uniform4fv(programInfo.uniformLocations.uFogColor, this.engine.getClearColor());
+    gl.uniform1f(programInfo.uniformLocations.uForNear, 1.0);
+    gl.uniform1f(programInfo.uniformLocations.uFogFar, 50.0);
   }
 
   public mouseMove(deltaMoveX: number, deltaMoveY: number) {
@@ -70,6 +118,7 @@ class TinCamera {
   }
 
   private processControlls(deltaTime: number) {
+
     const { engine } = this;
     const scalarSpeed: number = this.speed * deltaTime;
     const keys = engine.getInput().getKeysState();
@@ -128,8 +177,8 @@ class TinScene {
         newObject = new TinGrid(this.engine);
       } break;
 
-      case 'sprite': {
-        newObject = new TinSprite(this.engine);
+      case 'plane': {
+        newObject = new TinPlane(this.engine);
       } break;
     }
 
@@ -199,23 +248,41 @@ class TinInput {
 
 export class Transform {
   private position: vec3 = vec3.create();
-  private rotation: quat = quat.identity(quat.create());
+  private rotation: mat4 = mat4.create();
   private scale: vec3 = vec3.fromValues(1.0, 1.0, 1.0);
+  private matrix: mat4 = mat4.identity(mat4.create());
+  private wasChanged: boolean = false;
 
-  public setPos(pos: vec3): void { this.position = pos; }
+  public setPos(pos: vec3): void { 
+    this.position = pos; 
+    this.wasChanged = true;
+  }
+
   public getPos(): vec3 { return this.position; }
 
-  public setRot(rot: quat): void { this.rotation = rot; }
-  public getRot(): quat { return this.rotation; }
+  public setRot(rot: mat4): void { 
+    this.rotation = rot; 
+    this.wasChanged = true;
+  }
 
-  public setScale(scale: vec3): void { this.scale = scale; } 
+  public getRot(): mat4 { return this.rotation; }
+
+  public setScale(scale: vec3): void { 
+    this.scale = scale; 
+    this.wasChanged = true;
+  } 
+
   public getScale(): vec3 { return this.scale; }
 
   public getMatrix(): mat4 { 
-    const translation = mat4.translate(mat4.create(), mat4.identity(mat4.create()), this.position);
-    const rotation = mat4.fromQuat(mat4.create(), this.rotation);
-    const scale = mat4.scale(mat4.create(), mat4.identity(mat4.create()), this.scale);
-    return mat4.multiply(mat4.create(), mat4.multiply(mat4.create(), translation, rotation), scale);
+    if(this.wasChanged) {
+      const translation: mat4 = mat4.translate(mat4.create(), mat4.identity(mat4.create()), this.position);
+      const scale: mat4 = mat4.scale(mat4.create(), mat4.identity(mat4.create()), this.scale);
+      this.matrix = mat4.multiply(mat4.create(), mat4.multiply(mat4.create(), translation, this.rotation), scale);   
+      this.wasChanged = false;
+    }
+
+    return this.matrix;
   }
 }
 
@@ -277,7 +344,7 @@ export class TinTexture {
   }
 }
 
-export class TinSprite extends Transform {
+export class TinPlane extends Transform {
   private engine: TinGin;
   private texture: TinTexture;
   private vertexBuffer: WebGLBuffer;
@@ -287,24 +354,29 @@ export class TinSprite extends Transform {
   private indices: Array<number> = [];
   private vertices: Array<number> = [];
   private uv: Array<number> = [];
+  private color: vec4 = vec4.fromValues(1.0, 0.0, 1.0, 1.0);
 
   constructor(engine: TinGin) {
     super();
     this.engine = engine;
-    this.texture = new TinTexture(engine);
-    this.texture.loadTexture('potion.png');
     this.createBuffers();
   }
+
+  public setTexture(texture: TinTexture): void { this.texture = texture; }
+  public getTexture(): TinTexture { return this.texture; }
+
+  public setColor(color: vec4): void { this.color = color; }
+  public getColor(): vec4 { return this.color; }
 
   private createBuffers(): void {
     const gl = this.engine.gl;
 
     //NOTE: vertex
     this.vertices = [
-      -1, -1, 0,
-      -1,  1, 0,
-       1,  1, 0,
-       1, -1, 0
+      -1, 0, -1,
+      -1, 0,  1,
+       1, 0,  1,
+       1, 0, -1
     ];
 
     this.vertexBuffer = gl.createBuffer();
@@ -356,8 +428,11 @@ export class TinSprite extends Transform {
 
     gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, this.indexBuffer);
     gl.useProgram(programInfo.program);
-    gl.uniformMatrix4fv(programInfo.uniformLocations.modelViewProjMatrix, false, mat4.mul(mat4.create(), this.getMatrix(), cam.getViewProj()));
 
+    gl.uniform1i(programInfo.uniformLocations.uUseTexture, this.texture !== undefined ? 1 : 0);
+    
+    gl.uniformMatrix4fv(programInfo.uniformLocations.uWorldView, false, mat4.mul(mat4.create(), cam.getView(), this.getMatrix()));
+    gl.uniform4fv(programInfo.uniformLocations.uColor, new Float32Array(this.color));
     //NOTE: if we have textured quad lets active the texture before rendering
     if(this.texture !== undefined) {
       this.texture.activate();
@@ -373,12 +448,15 @@ export class TinGrid extends Transform {
   private indexBuffer: WebGLBuffer;
   private indices: Array<number> = [];
   private vertices: Array<number> = [];
+  private color: vec4 = vec4.fromValues(1.0, 1.0, 1.0, 1.0);
 
   constructor(engine: TinGin) {
     super();
     this.engine = engine;
     this.createBuffers();
   }
+
+  public setColor(color: vec4): void { this.color = color; }
 
   private createBuffers(): void {
     const gl = this.engine.gl;
@@ -427,7 +505,9 @@ export class TinGrid extends Transform {
 
     gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, this.indexBuffer);
     gl.useProgram(programInfo.program);
-    gl.uniformMatrix4fv(programInfo.uniformLocations.modelViewProjMatrix, false, mat4.mul(mat4.create(), this.getMatrix(), cam.getViewProj()));
+    gl.uniform1i(programInfo.uniformLocations.uUseTexture, 0);
+    gl.uniformMatrix4fv(programInfo.uniformLocations.uWorldView, false, mat4.mul(mat4.create(), cam.getView(), this.getMatrix()));
+    gl.uniform4fv(programInfo.uniformLocations.uColor, new Float32Array(this.color));
     gl.drawElements(gl.LINES, this.vertices.length / 2, gl.UNSIGNED_SHORT, 0);
   }
 }
@@ -524,7 +604,8 @@ export class TinMesh extends Transform {
 
     gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, this.indexBuffer);
     gl.useProgram(programInfo.program);
-    gl.uniformMatrix4fv(programInfo.uniformLocations.modelViewProjMatrix, false, mat4.mul(mat4.create(), this.getMatrix(), cam.getViewProj()));
+    gl.uniformMatrix4fv(programInfo.uniformLocations.uWorldView, false, mat4.mul(mat4.create(), cam.getView(), this.getMatrix()));
+    
     gl.drawElements(gl.TRIANGLES, 36, gl.UNSIGNED_SHORT, 0);
   }
 }
@@ -539,6 +620,7 @@ export class TinGin {
   private scene: TinScene;
   private input: TinInput;
   private camera: TinCamera;
+  private clearColor: vec4 = vec4.fromValues(0.07, 0.07, 0.27, 255);
 
   constructor() {
     this.init(800, 600);
@@ -547,12 +629,21 @@ export class TinGin {
     this.camera = new TinCamera(this);
   }
 
+  public setClearColor(color: vec4): void { this.clearColor = color; }
+  public getClearColor(): vec4 { return this.clearColor; }
+
   public getCamera(): TinCamera { return this.camera; }
   public getInput(): TinInput { return this.input; }
   public getScene(): TinScene { return this.scene; }
   public getDeltaTime(): number { return this.deltaTime; }
   public getCanvas(): HTMLCanvasElement | undefined { return this.canvas; }
   public getProgram(): any { return this.defaultProgramInfo; }
+
+  public createAndLoadTexture(url: string): TinTexture {
+    const texture: TinTexture = new TinTexture(this);
+    texture.loadTexture(url);
+    return texture;
+  }
 
   private init(width: number, height: number): void {
     //NOTE: create canvas
@@ -589,8 +680,19 @@ export class TinGin {
         textureCoord: gl.getAttribLocation(defaultProgram, 'aTextureCoord'),
       },
       uniformLocations: {
-        modelViewProjMatrix: gl.getUniformLocation(defaultProgram, 'uMVPMatrix'),
-        uSampler: gl.getUniformLocation(defaultProgram, 'uSampler'),
+        
+        modelViewProjMatrix:    gl.getUniformLocation(defaultProgram, 'uMVPMatrix'),
+        uWorldView:             gl.getUniformLocation(defaultProgram, 'uWorldView'), 
+        uProjection:            gl.getUniformLocation(defaultProgram, 'uProjection'),
+
+        uSampler:               gl.getUniformLocation(defaultProgram, 'uSampler'),
+        uUseTexture:            gl.getUniformLocation(defaultProgram, 'uUseTexture'),
+        uColor:                 gl.getUniformLocation(defaultProgram, 'uColor'),
+
+        //-- FOG
+        uFogColor:              gl.getUniformLocation(defaultProgram, "uFogColor"),
+        uFogNear:               gl.getUniformLocation(defaultProgram, "uFogNear"),
+        uFogFar:                gl.getUniformLocation(defaultProgram, "uFogFar")
       },
     };
   }
@@ -631,16 +733,20 @@ export class TinGin {
     return shaderProgram;
   }
 
-  public run = () => {
+  public run = (onTick: Function = undefined) => {
     const { gl, scene, camera } = this;
     this.deltaTime = (new Date().valueOf() - this.lastTime.valueOf()) / 1000.0;
     gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
-    gl.clearColor(0.07, 0.07, 0.27, 255);
+    gl.clearColor(this.clearColor[0], this.clearColor[1], this.clearColor[2], this.clearColor[3]);
 
     camera.render(this.deltaTime);
     scene.render(this.deltaTime);
 
+    if(onTick !== undefined)  {
+      onTick(this.deltaTime);
+    }
+
     this.lastTime = new Date();
-    requestAnimationFrame(this.run.bind(this));
+    requestAnimationFrame(this.run.bind(this, onTick));
   }
 }
