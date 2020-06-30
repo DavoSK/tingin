@@ -82,12 +82,14 @@ class TinCamera {
     this.createPerspective(this.fov, this.near, this.far);
   }
 
+  public getPos(): vec3 { return mat4.getTranslation(vec3.create(), this.cameraMat); }
+
   public getView(): mat4 { return this.viewMat; }
   public getProj(): mat4 { return this.projMat; }
   public getViewProj(): mat4 { return this.viewProjMat; }
 
   public createPerspective(fov: number, near: number, far: number) {
-    const { gl } = this.engine;
+    const gl = this.engine.getContext();
     this.fov  = fov;
     this.near = near;
     this.far  = far;
@@ -97,8 +99,7 @@ class TinCamera {
   }
 
   public render(deltaTime: number) {
-    const { gl } = this.engine;
-
+    const gl = this.engine.getContext();
     this.processControlls(deltaTime);
 	  this.viewMat = mat4.invert(mat4.create(), this.cameraMat)
     this.viewProjMat = mat4.multiply(mat4.create(), this.projMat, this.viewMat);
@@ -213,7 +214,7 @@ class TinInput {
   public getKeysState(): any { return this.keys; }
 
   public isDown(key: string): boolean {
-    return this.keys[key] !== undefined;
+    return this.keys[key.toLocaleLowerCase()] === true;
   }
 
   private bindEvents(): void {
@@ -226,13 +227,8 @@ class TinInput {
     const { engine } = this;
     const canvas = engine.getCanvas();
 
-    if (canvas) {
-      canvas.onclick = () => {
-        canvas.requestPointerLock();
-      }
-
-      canvas.requestPointerLock();
-    }
+    canvas.onclick = () => canvas.requestPointerLock();
+    canvas.requestPointerLock();
 
     document.onmousemove = (e) => {
       if (document.pointerLockElement === canvas) {
@@ -242,7 +238,8 @@ class TinInput {
   }
 
   private onKeyDown = (down: boolean, e: any) => {
-    this.keys[e.key] = down;
+    console.log(e.key);
+    this.keys[e.key.toLowerCase()] = down;
   }
 }
 
@@ -307,6 +304,7 @@ export class TinTexture {
   
     this.bind();
     gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, this.width, this.height, 0, gl.RGBA, gl.UNSIGNED_BYTE, new Uint8Array([255, 0, 0, 255]));
+    gl.texParameterf(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
   }
 
   private isPowerOf2(value): boolean {
@@ -319,6 +317,7 @@ export class TinTexture {
     this.width  = this.img.width;
     this.height = this.img.height;
     gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, this.img);
+    gl.texParameterf(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
 
     if (this.isPowerOf2(this.width) && this.isPowerOf2(this.height)) {
         gl.generateMipmap(gl.TEXTURE_2D);
