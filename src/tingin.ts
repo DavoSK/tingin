@@ -298,7 +298,7 @@ export class TinTexture {
   }
 
   public loadTexture(url: string): void {
-    const { gl } = this.engine;
+    const gl = this.engine.getContext();
     this.glTexture = gl.createTexture();
 
     this.img = new Image();
@@ -314,7 +314,7 @@ export class TinTexture {
   }
 
   private imageLoaded(): void {
-    const { gl } = this.engine;
+    const gl = this.engine.getContext();
     this.bind();
     this.width  = this.img.width;
     this.height = this.img.height;
@@ -330,12 +330,12 @@ export class TinTexture {
   }
 
   public bind(): void {
-    const { gl } = this.engine;
+    const gl = this.engine.getContext();
     gl.bindTexture(gl.TEXTURE_2D, this.glTexture);  
   }
 
   public activate(): void {
-    const { gl } = this.engine;
+    const gl = this.engine.getContext();
     const programInfo = this.engine.getProgram();
 
     gl.activeTexture(gl.TEXTURE0);
@@ -369,7 +369,7 @@ export class TinPlane extends Transform {
   public getColor(): vec4 { return this.color; }
 
   private createBuffers(): void {
-    const gl = this.engine.gl;
+    const gl = this.engine.getContext();
 
     //NOTE: vertex
     this.vertices = [
@@ -407,8 +407,7 @@ export class TinPlane extends Transform {
   }
 
   public render(deltaTime: number): void {
-
-    const gl = this.engine.gl;
+    const gl = this.engine.getContext();
     const programInfo = this.engine.getProgram();
     const cam: TinCamera = this.engine.getCamera();
 
@@ -459,7 +458,7 @@ export class TinGrid extends Transform {
   public setColor(color: vec4): void { this.color = color; }
 
   private createBuffers(): void {
-    const gl = this.engine.gl;
+    const gl = this.engine.getContext();
 
     this.vertexBuffer = gl.createBuffer();
     gl.bindBuffer(gl.ARRAY_BUFFER, this.vertexBuffer);
@@ -487,7 +486,7 @@ export class TinGrid extends Transform {
 
   public render(deltaTime: number): void {
 
-    const gl = this.engine.gl;
+    const gl = this.engine.getContext();
     const programInfo = this.engine.getProgram();
     const cam: TinCamera = this.engine.getCamera();
 
@@ -524,7 +523,7 @@ export class TinMesh extends Transform {
   }
 
   private createBuffers(): void {
-    const gl = this.engine.gl;
+    const gl = this.engine.getContext();
 
     this.vertexBuffer = gl.createBuffer();
     gl.bindBuffer(gl.ARRAY_BUFFER, this.vertexBuffer);
@@ -580,50 +579,45 @@ export class TinMesh extends Transform {
 
   public render(deltaTime: number): void {
 
-    const gl = this.engine.gl;
+    const gl = this.engine.getContext();
     const programInfo = this.engine.getProgram();
-    const cam: TinCamera = this.engine.getCamera();
+    const cam = this.engine.getCamera();
 
-    {
-      const numComponents = 3;
-      const type = gl.FLOAT;
-      const normalize = false;
-      const stride = 0;
-      const offset = 0;
-      gl.bindBuffer(gl.ARRAY_BUFFER, this.vertexBuffer);
-      gl.vertexAttribPointer(
-          programInfo.attribLocations.vertexPosition,
-          numComponents,
-          type,
-          normalize,
-          stride,
-          offset);
-      gl.enableVertexAttribArray(
-          programInfo.attribLocations.vertexPosition);
-    }
-
+    gl.bindBuffer(gl.ARRAY_BUFFER, this.vertexBuffer);
+    gl.vertexAttribPointer(programInfo.attribLocations.vertexPosition, 3, gl.FLOAT, false, 0, 0);
+    gl.enableVertexAttribArray(programInfo.attribLocations.vertexPosition);
     gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, this.indexBuffer);
     gl.useProgram(programInfo.program);
     gl.uniformMatrix4fv(programInfo.uniformLocations.uWorldView, false, mat4.mul(mat4.create(), cam.getView(), this.getMatrix()));
-    
     gl.drawElements(gl.TRIANGLES, 36, gl.UNSIGNED_SHORT, 0);
   }
 }
 
 export class TinGin {
-
-  public gl?: WebGLRenderingContext;
+  private gl: WebGLRenderingContext | null;
   public canvas: HTMLCanvasElement;
-  private defaultProgramInfo: Object;
+  private defaultProgramInfo: any;
   private lastTime?: Date;
-  private deltaTime: number;
+  private deltaTime: number = 0;
   private scene: TinScene;
   private input: TinInput;
   private camera: TinCamera;
   private clearColor: vec4 = vec4.fromValues(0.07, 0.07, 0.27, 255);
 
-  constructor() {
-    this.init(800, 600);
+  constructor(width: number, height: number) {
+
+    //NOTE: create canvas
+    this.canvas = document.createElement('canvas');
+    this.canvas.width = width;
+    this.canvas.height = height;
+    document.body.appendChild(this.canvas);
+
+    this.lastTime = new Date();    
+    this.gl = this.canvas.getContext('webgl');
+
+    this.initWebGL();
+    this.initDefaultShader();
+
     this.scene = new TinScene(this);
     this.input = new TinInput(this);
     this.camera = new TinCamera(this);
@@ -631,33 +625,18 @@ export class TinGin {
 
   public setClearColor(color: vec4): void { this.clearColor = color; }
   public getClearColor(): vec4 { return this.clearColor; }
-
   public getCamera(): TinCamera { return this.camera; }
   public getInput(): TinInput { return this.input; }
   public getScene(): TinScene { return this.scene; }
   public getDeltaTime(): number { return this.deltaTime; }
   public getCanvas(): HTMLCanvasElement | undefined { return this.canvas; }
   public getProgram(): any { return this.defaultProgramInfo; }
+  public getContext(): WebGLRenderingContext { return this.gl; }
 
   public createAndLoadTexture(url: string): TinTexture {
     const texture: TinTexture = new TinTexture(this);
     texture.loadTexture(url);
     return texture;
-  }
-
-  private init(width: number, height: number): void {
-    //NOTE: create canvas
-    const canvas = document.createElement('canvas');
-    canvas.width = width;
-    canvas.height = height;
-    document.body.appendChild(canvas);
-
-    this.canvas = canvas;
-    this.lastTime = new Date();
-    this.gl = canvas.getContext('webgl');
-
-    this.initWebGL();
-    this.initDefaultShader();
   }
 
   private initWebGL = () => {
